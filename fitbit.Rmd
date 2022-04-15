@@ -1,0 +1,217 @@
+---
+title: "Fitbit"
+author: "Karthik"
+date: "27/03/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Setting Up my Environment
+
+Notes: Setting up my R environment by loading 'tidyverse', 'lubridate', 'ggplot2' and 'readxl' packages
+```{r loading packages}
+install.packages("sqldf",repos = "http://cran.us.r-project.org")
+library(tidyverse)  #helps wrangle data
+library(lubridate)  #helps wrangle date attributes
+library(ggplot2)  #helps visualize data
+library(sqldf)
+```
+##Importing requires Datasets
+
+Note: Here we are loading various datasets that are collect form the fitbase
+
+```{r loading datasets}
+dailyActivity_merged <- read.csv("Fitabase Data 4.12.16-5.12.16/dailyActivity_merged.csv")
+daily_calories <- read.csv("Fitabase Data 4.12.16-5.12.16/dailyCalories_merged.csv")
+sleep_day <- read.csv("Fitabase Data 4.12.16-5.12.16/sleepDay_merged.csv")
+daily_intensities <- read.csv("Fitabase Data 4.12.16-5.12.16/dailyIntensities_merged.csv")
+weight_log <- read.csv("Fitabase Data 4.12.16-5.12.16/weightLogInfo_merged.csv")
+```
+
+##Explore the datasets
+```{r exploring datasets}
+colnames(dailyActivity_merged) #know column names
+glimpse(dailyActivity_merged) #This is like a transposed version of print: columns run down the page, and data runs across
+colnames(daily_calories) #know column names
+glimpse(daily_calories) #This is like a transposed version of print: columns run down the page, and data runs across
+colnames(sleep_day) #know column names
+glimpse(sleep_day) #This is like a transposed version of print: columns run down the page, and data runs across
+colnames(daily_intensities) #know column names
+glimpse(daily_intensities) #This is like a transposed version of print: columns run down the page, and data runs across
+colnames(weight_log) #know column names
+glimpse(weight_log) #This is like a transposed version of print: columns run down the page, and data runs across
+```
+##Exploring or Analysing the data and Importing sqldf
+
+Note: All the datasets has Id as common field so can use id as primary field for this.
+It looks like the daily_activity, daily_calories, and daily_intensities have the exact same number of observations.So we should confirm that the values actually match for any given ‘ID’ number.
+Lets write the SQL query /syntax to see if there are any values in daily_calories that are in dailyActivity_merged, so created temp data frame
+
+```{r analysing}
+dailyActivity_merged2<- dailyActivity_merged %>%
+  select(Id,ActivityDate,Calories)
+
+head(dailyActivity_merged2)
+
+#finding similar elements from 2 tables
+sql_check <- sqldf('Select * From dailyActivity_merged2 INTERSECT SELECT * FROM daily_calories')
+head(sql_check)
+
+nrow(sql_check)#number of rows
+
+```
+
+Note: From the above codes we can say that since the first six values of daily_activity and daily_calories are same and total observation of the sql query is 940 the values are the same between the dataframes.
+
+```{r}
+dailyActivity_merged3<- dailyActivity_merged %>%
+  select(Id, ActivityDate, SedentaryMinutes, LightlyActiveMinutes, FairlyActiveMinutes, VeryActiveMinutes, SedentaryActiveDistance, LightActiveDistance, ModeratelyActiveDistance, VeryActiveDistance)
+
+head(dailyActivity_merged3)
+
+
+sql_check2 <- sqldf('Select * from dailyActivity_merged3 INTERSECT select * from daily_intensities')
+head(sql_check2)
+nrow(sql_check2)
+```
+
+##Analysing the datas from the based on assumption made
+
+###Checking if the data in dailyActivity_merged is greater than that in sleep_day and weight_log
+
+```{r finding distinct row count}
+
+n_distinct(dailyActivity_merged$Id)
+n_distinct(sleep_day$Id)
+n_distinct(weight_log$Id)
+```
+As per the understanding its seen that the data in dailyActivity_merged is more
+
+###Number of Observation in Each dataframe
+
+```{r counting total rows}
+nrow(dailyActivity_merged)
+nrow(sleep_day)
+nrow(weight_log)
+```
+
+###Getting the summary of Tables
+
+```{r summarising}
+dailyActivity_merged %>%
+  select(TotalSteps,
+         TotalDistance,
+         SedentaryMinutes,
+         VeryActiveMinutes) %>%
+  summary()
+
+sleep_day %>%  
+  select(TotalSleepRecords,
+         TotalMinutesAsleep,
+         TotalTimeInBed) %>%
+  summary()
+
+weight_log %>%  
+  select(WeightPounds,
+         BMI) %>%
+  summary()
+```
+
+##Visualisation or Plotting the exploration
+
+I would like to start with the relationship between steps taken in a da and sedentary(people were inactive) minutes
+
+```{r plotting}
+ggplot(data=dailyActivity_merged, aes(x=TotalSteps, y=SedentaryMinutes, color = Calories)) + geom_point()
+```
+Form thus we could see that total as one doesnt move when inactive
+
+Now I will plot the graph between calories and total steps to see the relationship between them.
+
+```{r plotting1}
+ggplot(data=dailyActivity_merged, aes(x=TotalSteps, y = Calories))+ geom_point() + stat_smooth(method=lm)
+```
+
+This shows the difference between estimated and actual calories  
+```{r plotting2}
+
+calories.lm <- lm(Calories ~ TotalSteps, data = dailyActivity_merged)
+calories.res <- resid(calories.lm)
+
+plot(dailyActivity_merged$TotalSteps, calories.res, ylab="Residuals",
+     xlab = "Total Steps", main = "Calories Burned")
+abline(0,0)
+#This looks messy so we will plot using desity plot
+plot(density(calories.res))
+```
+
+Let’s look at our sleep data, we should see a practically 1:1 trend from the amount of time slept and the total time someone spends in bed.
+
+```{r}
+ggplot(data=sleep_day,aes(x=TotalMinutesAsleep,y=TotalTimeInBed))+geom_point()
+
+```
+As sleep hour and sedentary minutes are similar we could merge the to set by ID field
+
+```{r plotting3}
+
+combined_sleep_day_data <- merge(sleep_day,dailyActivity_merged,by="Id")
+head(combined_sleep_day_data)
+
+n_distinct(combined_sleep_day_data$Id)
+
+combined_sleep_day_data2 <- merge(sleep_day,dailyActivity_merged,by="Id",all=TRUE)
+head(combined_sleep_day_data2)
+
+n_distinct(combined_sleep_day_data2$Id)
+
+```
+
+###Sedentary time VS Sleep Time
+
+```{r plotting4}
+sedentary.lm <- lm(SedentaryMinutes ~ TotalTimeInBed, data = combined_sleep_day_data)
+sedentary.lm
+
+#And now a pearson correlation coefficient:
+cor(combined_sleep_day_data$TotalTimeInBed,combined_sleep_day_data$SedentaryMinutes, method = "pearson")
+
+ggplot(data = combined_sleep_day_data, aes(x=VeryActiveMinutes, y=Calories)) + geom_point() + stat_smooth(method = lm)
+
+```
+Lets check correlation between total steps taken and calories
+
+```{r plotting5}
+lm(Calories ~ VeryActiveMinutes, data = combined_sleep_day_data)
+
+ggplot(data = combined_sleep_day_data, aes(x=TotalSteps, y=Calories)) + geom_point() +stat_smooth(method = lm)
+
+```
+
+
+Correlation between fairlyactivemiutes taken and calories.
+```{r}
+lm(Calories ~ TotalSteps, data = combined_sleep_day_data)
+
+ggplot(data = combined_sleep_day_data, aes(x=FairlyActiveMinutes, y=Calories)) + geom_point() + stat_smooth(method = lm)
+
+lm(Calories ~ FairlyActiveMinutes, data = combined_sleep_day_data)
+
+```
+
+##Conclusion
+I prepossessed, explored, analysed and visualized the fitbit users dataset quite deeply, and gave some marketing strategy above.
+
+###Final Marketing Strategy
+
+I would focus on the fact that simply collecting more data from different competitors one could see more trends.
+
+Also the best relationship was in between veryactiveminutes and calories so the people who are very active tend to burn the most calorie this can be a good marketing strategy.
+
+We could also add the features that would automatically measures the calories intake based on the food and beverages that was consumed and show how much of the calories intake today was not composated by workout  
